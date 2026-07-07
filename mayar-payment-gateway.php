@@ -161,30 +161,26 @@ function mayar_wc_process_payment_webhook( $data ) {
         return;
     }
 
-    // Try to find order by mayar_transaction_id meta
+    // Cari order berdasarkan Mayar payment_id (paling reliable — selalu tersimpan dari process_payment)
     $order = null;
-    if ( ! empty( $transaction_id ) ) {
-        $order_id = wc_get_order_id_by_order_key( $transaction_id );
-        if ( ! $order_id ) {
-            // Search by meta
-            $orders = wc_get_orders( array(
-                'meta_key'   => '_mayar_transaction_id',
-                'meta_value' => $transaction_id,
-                'limit'      => 1,
-                'return'     => 'ids',
-            ) );
-            $order_id = ! empty( $orders ) ? $orders[0] : 0;
-        }
+    if ( ! empty( $payment_id ) ) {
+        $orders = wc_get_orders( array(
+            'meta_key'   => '_mayar_payment_id',
+            'meta_value' => $payment_id,
+            'limit'      => 1,
+            'return'     => 'ids',
+        ) );
+        $order_id = ! empty( $orders ) ? $orders[0] : 0;
         if ( $order_id ) {
             $order = wc_get_order( $order_id );
         }
     }
 
-    // Fallback: search by mayar_payment_id
-    if ( ! $order && ! empty( $payment_id ) ) {
+    // Fallback: search by mayar_transaction_id
+    if ( ! $order && ! empty( $transaction_id ) ) {
         $orders = wc_get_orders( array(
-            'meta_key'   => '_mayar_payment_id',
-            'meta_value' => $payment_id,
+            'meta_key'   => '_mayar_transaction_id',
+            'meta_value' => $transaction_id,
             'limit'      => 1,
             'return'     => 'ids',
         ) );
