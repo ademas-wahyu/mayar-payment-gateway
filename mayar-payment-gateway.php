@@ -3,7 +3,7 @@
  * Plugin Name: Mayar Payment Gateway
  * Plugin URI: https://mayar.id
  * Description: Terima pembayaran melalui Mayar.id - mendukung Virtual Account, QRIS, E-Wallet, Kartu Kredit/Debit, dan masih banyak lagi.
- * Version: 1.0.0
+ * Version: 1.0.1
  * Author: Wahyu (Vodeco Media Group)
  * Author URI: https://ademaswahyu.my.id
  * License: GPL v2 or later
@@ -21,7 +21,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 // Plugin constants
-define( 'MAYAR_WC_VERSION', '1.0.0' );
+define( 'MAYAR_WC_VERSION', '1.0.1' );
 define( 'MAYAR_WC_PLUGIN_DIR', plugin_dir_path( __FILE__ ) );
 define( 'MAYAR_WC_PLUGIN_URL', plugin_dir_url( __FILE__ ) );
 define( 'MAYAR_WC_PLUGIN_BASENAME', plugin_basename( __FILE__ ) );
