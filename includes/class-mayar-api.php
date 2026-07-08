@@ -220,7 +220,7 @@ class Mayar_API {
      * @return array|WP_Error Response or error.
      */
     public function register_webhook( $webhook_url ) {
-        return $this->post( '/webhooks/update', array(
+        return $this->post( '/v1/webhook/register', array(
             'urlHook' => esc_url_raw( $webhook_url ),
         ) );
     }
@@ -232,7 +232,7 @@ class Mayar_API {
      * @return array|WP_Error Response or error.
      */
     public function test_webhook( $webhook_url ) {
-        return $this->post( '/webhooks/test', array(
+        return $this->post( '/v1/webhook/test', array(
             'urlHook' => esc_url_raw( $webhook_url ),
         ) );
     }

@@ -164,9 +164,14 @@ function mayar_wc_handle_webhook( WP_REST_Request $request ) {
 
     $logger->info( 'Mayar webhook received', array( 'source' => 'mayar-wc', 'event' => $payload['event'] ) );
 
-    // Process payment received event
+    // Process payment.received event
     if ( 'payment.received' === $payload['event'] && ! empty( $payload['data'] ) ) {
         mayar_wc_process_payment_webhook( $payload['data'] );
+    }
+
+    // Process payment.reminder event (customer hasn't paid after 29 minutes)
+    if ( 'payment.reminder' === $payload['event'] && ! empty( $payload['data'] ) ) {
+        mayar_wc_process_payment_reminder_webhook( $payload['data'] );
     }
 
     return new WP_REST_Response( array( 'message' => 'OK' ), 200 );
@@ -260,10 +265,30 @@ function mayar_wc_process_payment_webhook( $data ) {
 
         // Note: stock already reduced by $order->payment_complete() above
         $logger->info( sprintf( 'Mayar webhook: Payment completed for order #%d', $order->get_id() ), array( 'source' => 'mayar-wc' ) );
-    } else {
-        // Payment not successful
+    } elseif ( in_array( strtolower( $transaction_status ), array( 'expired', 'closed', 'failed', 'cancelled' ), true ) ) {
+        // Payment expired, closed, failed, or cancelled
+        $status_labels = array(
+            'expired'   => __( 'Kedaluwarsa', 'mayar-payment-gateway' ),
+            'closed'    => __( 'Ditutup', 'mayar-payment-gateway' ),
+            'failed'    => __( 'Gagal', 'mayar-payment-gateway' ),
+            'cancelled' => __( 'Dibatalkan', 'mayar-payment-gateway' ),
+        );
+        $status_label = isset( $status_labels[ strtolower( $transaction_status ) ] ) ? $status_labels[ strtolower( $transaction_status ) ] : $transaction_status;
+
+        $order->update_meta_data( '_mayar_payment_status', $transaction_status );
         $order->add_order_note( sprintf(
-            'Mayar.id: Status pembayaran: %s (%s)',
+            'Mayar.id: Pembayaran %s. Transaction ID: %s | Payment ID: %s',
+            $status_label,
+            $transaction_id,
+            $payment_id
+        ) );
+        $order->save();
+
+        $logger->info( sprintf( 'Mayar webhook: Payment %s for order #%d', $transaction_status, $order->get_id() ), array( 'source' => 'mayar-wc' ) );
+    } else {
+        // Other status - log for debugging
+        $order->add_order_note( sprintf(
+            'Mayar.id: Status pembayaran diperbarui: %s (%s)',
             $status,
             $transaction_status
         ) );
@@ -271,6 +296,63 @@ function mayar_wc_process_payment_webhook( $data ) {
         $order->save();
 
         $logger->warning( sprintf( 'Mayar webhook: Payment status %s for order #%d', $status, $order->get_id() ), array( 'source' => 'mayar-wc' ) );
+    }
+}
+
+/**
+ * Process payment reminder webhook
+ *
+ * @param array $data Webhook reminder data.
+ */
+function mayar_wc_process_payment_reminder_webhook( $data ) {
+    $logger = wc_get_logger();
+
+    $transaction_id = isset( $data['transactionId'] ) ? $data['transactionId'] : '';
+    $payment_id     = isset( $data['id'] ) ? $data['id'] : '';
+    $payment_url    = isset( $data['paymentUrl'] ) ? $data['paymentUrl'] : '';
+    $product_name   = isset( $data['productName'] ) ? $data['productName'] : 'Order';
+
+    // Cari order berdasarkan payment_id atau transaction_id
+    $order = null;
+    if ( ! empty( $payment_id ) ) {
+        $orders = wc_get_orders( array(
+            'meta_key'   => '_mayar_payment_id',
+            'meta_value' => $payment_id,
+            'limit'      => 1,
+            'return'     => 'ids',
+        ) );
+        if ( ! empty( $orders ) ) {
+            $order = wc_get_order( $orders[0] );
+        }
+    }
+
+    if ( ! $order && ! empty( $transaction_id ) ) {
+        $orders = wc_get_orders( array(
+            'meta_key'   => '_mayar_transaction_id',
+            'meta_value' => $transaction_id,
+            'limit'      => 1,
+            'return'     => 'ids',
+        ) );
+        if ( ! empty( $orders ) ) {
+            $order = wc_get_order( $orders[0] );
+        }
+    }
+
+    if ( ! $order ) {
+        $logger->warning( sprintf( 'Mayar reminder: Order not found for transaction_id=%s, payment_id=%s', $transaction_id, $payment_id ), array( 'source' => 'mayar-wc' ) );
+        return;
+    }
+
+    // Only add reminder note if order is still pending
+    $payment_status = $order->get_meta( '_mayar_payment_status' );
+    if ( 'pending' === $payment_status ) {
+        $order->add_order_note( sprintf(
+            'Mayar.id: Reminder pembayaran dikirim. Customer belum menyelesaikan pembayaran setelah 29 menit.%s',
+            ! empty( $payment_url ) ? sprintf( ' Payment URL: %s', $payment_url ) : ''
+        ) );
+        $order->save();
+
+        $logger->info( sprintf( 'Mayar reminder: Sent for order #%d', $order->get_id() ), array( 'source' => 'mayar-wc' ) );
     }
 }
 
