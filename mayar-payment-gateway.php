@@ -130,9 +130,39 @@ function mayar_wc_handle_webhook( WP_REST_Request $request ) {
         return new WP_REST_Response( array( 'message' => 'Invalid payload' ), 400 );
     }
 
-    // Log the webhook
     $logger = wc_get_logger();
-    $logger->info( 'Mayar webhook received', array( 'source' => 'mayar-wc', 'payload' => $payload ) );
+
+    // Verify webhook signature if secret is configured
+    $settings    = get_option( 'woocommerce_mayar_settings', array() );
+    $webhook_secret = isset( $settings['webhook_secret'] ) ? $settings['webhook_secret'] : '';
+
+    if ( ! empty( $webhook_secret ) ) {
+        $signature_header = $request->get_header( 'X-Mayar-Signature' );
+        if ( empty( $signature_header ) ) {
+            $signature_header = $request->get_header( 'X-Signature' );
+        }
+        if ( empty( $signature_header ) ) {
+            $signature_header = $request->get_header( 'Signature' );
+        }
+
+        if ( empty( $signature_header ) ) {
+            $logger->warning( 'Mayar webhook: No signature header found, skipping verification', array( 'source' => 'mayar-wc' ) );
+        } else {
+            $gateway  = new WC_Gateway_Mayar();
+            $verified = $gateway->verify_webhook_signature( $raw_body, $signature_header );
+
+            if ( ! $verified ) {
+                $logger->error( 'Mayar webhook: Signature verification failed', array( 'source' => 'mayar-wc', 'signature' => $signature_header ) );
+                return new WP_REST_Response( array( 'message' => 'Signature verification failed' ), 401 );
+            }
+
+            $logger->info( 'Mayar webhook: Signature verified successfully', array( 'source' => 'mayar-wc' ) );
+        }
+    } else {
+        $logger->warning( 'Mayar webhook: No webhook secret configured, signature not verified', array( 'source' => 'mayar-wc' ) );
+    }
+
+    $logger->info( 'Mayar webhook received', array( 'source' => 'mayar-wc', 'event' => $payload['event'] ) );
 
     // Process payment received event
     if ( 'payment.received' === $payload['event'] && ! empty( $payload['data'] ) ) {
@@ -228,9 +258,7 @@ function mayar_wc_process_payment_webhook( $data ) {
         $order->update_meta_data( '_mayar_payment_status', 'paid' );
         $order->save();
 
-        // Reduce stock
-        wc_reduce_stock_levels( $order->get_id() );
-
+        // Note: stock already reduced by $order->payment_complete() above
         $logger->info( sprintf( 'Mayar webhook: Payment completed for order #%d', $order->get_id() ), array( 'source' => 'mayar-wc' ) );
     } else {
         // Payment not successful
@@ -300,12 +328,14 @@ add_action( 'woocommerce_order_actions', 'mayar_wc_order_admin_actions' );
  * Handle manual payment status check
  */
 function mayar_wc_admin_post_check_payment() {
-    if ( ! isset( $_GET['order_id'] ) || ! wp_verify_nonce( $_GET['_wpnonce'], 'mayar_check_payment_' . intval( $_GET['order_id'] ) ) ) {
+    $order_id = isset( $_GET['order_id'] ) ? intval( wp_unslash( $_GET['order_id'] ) ) : 0;
+    $nonce    = isset( $_GET['_wpnonce'] ) ? sanitize_text_field( wp_unslash( $_GET['_wpnonce'] ) ) : '';
+
+    if ( ! $order_id || ! wp_verify_nonce( $nonce, 'mayar_check_payment_' . $order_id ) ) {
         wp_die( 'Security check failed' );
     }
 
-    $order_id = intval( $_GET['order_id'] );
-    $result   = mayar_wc_check_payment_status( $order_id );
+    $result = mayar_wc_check_payment_status( $order_id );
 
     if ( $result ) {
         wp_safe_redirect( admin_url( 'post.php?post=' . $order_id . '&action=edit&message=1' ) );

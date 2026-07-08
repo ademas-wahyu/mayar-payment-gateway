@@ -42,6 +42,13 @@ class Mayar_API {
     private $sandbox;
 
     /**
+     * Logger instance (cached)
+     *
+     * @var WC_Logger|null
+     */
+    private $logger = null;
+
+    /**
      * Constructor
      *
      * @param string $api_key Mayar.id API key.
@@ -50,6 +57,18 @@ class Mayar_API {
     public function __construct( $api_key = '', $sandbox = false ) {
         $this->api_key = $api_key;
         $this->sandbox = (bool) $sandbox;
+    }
+
+    /**
+     * Get logger instance (cached)
+     *
+     * @return WC_Logger
+     */
+    private function get_logger() {
+        if ( null === $this->logger ) {
+            $this->logger = wc_get_logger();
+        }
+        return $this->logger;
     }
 
     /**
@@ -119,8 +138,7 @@ class Mayar_API {
      */
     private function handle_response( $response ) {
         if ( is_wp_error( $response ) ) {
-            $logger = wc_get_logger();
-            $logger->error( 'Mayar API Error: ' . $response->get_error_message(), array( 'source' => 'mayar-wc' ) );
+            $this->get_logger()->error( 'Mayar API Error: ' . $response->get_error_message(), array( 'source' => 'mayar-wc' ) );
             return $response;
         }
 
@@ -129,17 +147,15 @@ class Mayar_API {
         $data        = json_decode( $body, true );
 
         if ( json_last_error() !== JSON_ERROR_NONE ) {
-            $logger = wc_get_logger();
-            $logger->error( 'Mayar API: Invalid JSON response', array( 'source' => 'mayar-wc', 'body' => $body ) );
+            $this->get_logger()->error( 'Mayar API: Invalid JSON response', array( 'source' => 'mayar-wc' ) );
             return new WP_Error( 'mayar_invalid_json', 'Invalid JSON response from Mayar API' );
         }
 
         // Check for API errors
         if ( $status_code >= 400 ) {
             $error_message = isset( $data['message'] ) ? $data['message'] : 'Unknown API error';
-            $logger        = wc_get_logger();
-            $logger->error( sprintf( 'Mayar API Error (HTTP %d): %s', $status_code, $error_message ), array( 'source' => 'mayar-wc', 'response' => $data ) );
-            return new WP_Error( 'mayar_api_error', $error_message, array( 'status_code' => $status_code, 'response' => $data ) );
+            $this->get_logger()->error( sprintf( 'Mayar API Error (HTTP %d): %s', $status_code, $error_message ), array( 'source' => 'mayar-wc' ) );
+            return new WP_Error( 'mayar_api_error', $error_message, array( 'status_code' => $status_code ) );
         }
 
         return $data;
@@ -173,11 +189,16 @@ class Mayar_API {
         }
 
         if ( ! empty( $params['extraData'] ) && is_array( $params['extraData'] ) ) {
-            $data['extraData'] = $params['extraData'];
+            $sanitized_extra = array();
+            foreach ( $params['extraData'] as $key => $value ) {
+                if ( is_string( $value ) ) {
+                    $sanitized_extra[ sanitize_text_field( $key ) ] = sanitize_text_field( $value );
+                }
+            }
+            $data['extraData'] = $sanitized_extra;
         }
 
-        $logger = wc_get_logger();
-        $logger->info( 'Mayar API: Creating payment request', array( 'source' => 'mayar-wc', 'data' => $data ) );
+        $this->get_logger()->info( sprintf( 'Mayar API: Creating payment request - amount: %d', $data['amount'] ), array( 'source' => 'mayar-wc' ) );
 
         return $this->post( '/payments/create', $data );
     }

@@ -334,6 +334,21 @@ class WC_Gateway_Mayar extends WC_Payment_Gateway {
     }
 
     /**
+     * Verify webhook signature
+     *
+     * @param string $raw_body Raw request body.
+     * @param string $signature Signature header value.
+     * @return bool
+     */
+    public function verify_webhook_signature( $raw_body, $signature ) {
+        if ( empty( $this->webhook_secret ) ) {
+            return false;
+        }
+        $expected = base64_encode( hash_hmac( 'sha256', $raw_body, $this->webhook_secret, true ) );
+        return hash_equals( $expected, $signature );
+    }
+
+    /**
      * Add admin order meta box for Mayar payment info
      *
      * @param WC_Order $order Order object.

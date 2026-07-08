@@ -26,8 +26,8 @@
         /** @var {number} Poll interval in ms */
         pollInterval: 3000,
 
-        /** @var {number} Max polls before timeout (10 min = 200 polls at 3s) */
-        maxPolls: 200,
+        /** @var {number} Max polls before timeout (6 min = 120 polls at 3s) */
+        maxPolls: 120,
 
         /** @var {number|null} Timeout timer ID */
         timeoutTimer: null,
@@ -393,12 +393,19 @@
 
             self.pollCount++;
 
-            // Adjust polling interval after 20 polls (60 seconds)
-            if (self.pollCount === 20) {
+            // Adaptive polling: slow down as time passes
+            if (self.pollCount === 15) {
+                // After 45s → poll every 5 seconds
                 self.stopPolling();
                 self.pollTimer = setInterval(function () {
                     self.checkStatus(orderId);
                 }, 5000);
+            } else if (self.pollCount === 40) {
+                // After ~3.5min total → poll every 10 seconds
+                self.stopPolling();
+                self.pollTimer = setInterval(function () {
+                    self.checkStatus(orderId);
+                }, 10000);
             }
 
             // Stop after max polls

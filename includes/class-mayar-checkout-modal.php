@@ -14,12 +14,43 @@ if ( ! defined( 'ABSPATH' ) ) {
 class Mayar_Checkout_Modal {
 
     /**
+     * Logger instance
+     *
+     * @var WC_Logger|null
+     */
+    private $logger = null;
+
+    /**
      * Constructor — hook into WordPress
      */
     public function __construct() {
         add_action( 'wp_enqueue_scripts', array( $this, 'enqueue_assets' ) );
         add_action( 'wp_ajax_mayar_check_payment_status', array( $this, 'ajax_check_payment_status' ) );
         add_action( 'wp_ajax_mayar_cancel_payment', array( $this, 'ajax_cancel_payment' ) );
+    }
+
+    /**
+     * Get logger instance (cached)
+     *
+     * @return WC_Logger
+     */
+    private function get_logger() {
+        if ( null === $this->logger ) {
+            $this->logger = wc_get_logger();
+        }
+        return $this->logger;
+    }
+
+    /**
+     * Get Mayar API instance from saved settings (avoids full gateway instantiation)
+     *
+     * @return Mayar_API
+     */
+    private function get_api() {
+        $settings = get_option( 'woocommerce_mayar_settings', array() );
+        $api_key  = isset( $settings['api_key'] ) ? $settings['api_key'] : '';
+        $sandbox  = isset( $settings['sandbox'] ) && 'yes' === $settings['sandbox'];
+        return new Mayar_API( $api_key, $sandbox );
     }
 
     /**
@@ -132,14 +163,13 @@ class Mayar_Checkout_Modal {
         }
 
         // Check live status from Mayar API
-        $gateway = new WC_Gateway_Mayar();
-        $api     = new Mayar_API( $gateway->get_api_key(), $gateway->is_sandbox() );
-        $result  = $api->get_payment( $payment_id );
+        $api    = $this->get_api();
+        $result = $api->get_payment( $payment_id );
 
         // Set throttle transient (3 seconds)
         set_transient( $throttle_key, true, 3 );
 
-        $logger = wc_get_logger();
+        $logger = $this->get_logger();
 
         if ( is_wp_error( $result ) ) {
             // API error — return cached status
@@ -148,10 +178,8 @@ class Mayar_Checkout_Modal {
             return;
         }
 
-        // Log full API response for debugging
         $logger->info( sprintf( 'Mayar modal poll: API response for order #%d', $order_id ), array(
-            'source'   => 'mayar-wc',
-            'response' => $result,
+            'source' => 'mayar-wc',
         ) );
 
         // Process live status — check multiple possible field names and values
@@ -268,9 +296,7 @@ class Mayar_Checkout_Modal {
             wp_send_json_error( array( 'message' => 'Order not found' ) );
         }
 
-        // Log the cancellation
-        $logger = wc_get_logger();
-        $logger->info( sprintf( 'Mayar modal: User closed payment modal for order #%d', $order_id ), array( 'source' => 'mayar-wc' ) );
+        $this->get_logger()->info( sprintf( 'Mayar modal: User closed payment modal for order #%d', $order_id ), array( 'source' => 'mayar-wc' ) );
 
         $order->add_order_note( 'Mayar.id: User menutup halaman pembayaran sebelum selesai.' );
 
